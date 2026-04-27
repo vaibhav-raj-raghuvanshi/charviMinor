@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Image Tamper Detector</title>
+    <style>
+        /* Dark Theme matching your Streamlit vibe */
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #0e1117;
+            color: #c9d1d9;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+        h1 { color: #ffffff; border-bottom: 1px solid #30363d; padding-bottom: 10px; }
+        .container {
+            background-color: #161b22;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #30363d;
+            margin-bottom: 20px;
+        }
+        input[type="file"] {
+            display: block;
+            margin-bottom: 15px;
+            color: #c9d1d9;
+        }
+        button {
+            background-color: #238636;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.2s;
+        }
+        button:disabled { background-color: #2ea04350; cursor: not-allowed; }
+        button:hover:not(:disabled) { background-color: #2ea043; }
+        
+        .flex-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        img {
+            max-width: 100%;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            display: block;
+        }
+        
+        #loading { display: none; color: #79c0ff; text-align: center; margin-top: 15px; font-weight: bold; }
+        #resultsSection { display: none; }
+        
+        .metric-box {
+            background-color: #0d1117;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .score { font-size: 2rem; font-weight: bold; color: #ff7b72; }
+    </style>
+</head>
+<body>
+
+    <h1>🛡️ Image Forgery Detection System</h1>
+    <p>Forensic Analysis Engine | Powered by TruFor</p>
+
+    <div class="container">
+        <h3>Upload Image</h3>
+        <input type="file" id="imageInput" accept="image/jpeg, image/png">
+        <img id="preview" style="display: none; max-height: 300px; margin: 0 auto 15px auto;">
+        
+        <button id="analyzeBtn" disabled>Run GPU Forensic Analysis</button>
+        <div id="loading">Connecting to cloud GPU and analyzing... (This may take a minute)</div>
+    </div>
+
+    <div id="resultsSection" class="container">
+        <h3>Analysis Results</h3>
+        
+        <div class="flex-grid">
+            <div>
+                <h4>Source Image</h4>
+                <img id="resultOriginal" alt="Original">
+            </div>
+            <div>
+                <h4>Localization Map (Heatmap)</h4>
+                <img id="resultHeatmap" alt="Heatmap">
+                <p style="font-size: 0.85em; color: #8b949e;">Bright areas indicate potential manipulation.</p>
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div>Tampering Score</div>
+            <div class="score" id="scoreValue">--</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { Client } from "https://esm.sh/@gradio/client";
+
+        const imageInput = document.getElementById('imageInput');
+        const preview = document.getElementById('preview');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const loading = document.getElementById('loading');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultOriginal = document.getElementById('resultOriginal');
+        const resultHeatmap = document.getElementById('resultHeatmap');
+        const scoreValue = document.getElementById('scoreValue');
+
+        let selectedFile = null;
+
+        // 1. Handle image upload and preview
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                selectedFile = file;
+                preview.src = URL.createObjectURL(file);
+                preview.style.display = "block";
+                analyzeBtn.disabled = false;
+                resultsSection.style.display = "none";
+            }
+        });
+
+        // 2. Handle API Call to Hugging Face
+        analyzeBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            // Update UI for loading state
+            analyzeBtn.disabled = true;
+            loading.style.display = "block";
+            resultsSection.style.display = "none";
+
+            try {
+                // Connect directly to the public TruFor model
+                const client = await Client.connect("Sclera/TruFor");
+                
+                const response = await client.predict("/predict", { 
+                    image: selectedFile, 
+                });
+
+                // Extract data from the array returned by the Gradio API
+                const heatmapUrl = response.data[0]?.url || response.data[0];
+                const rawScore = response.data[2];
+
+                // Update Results UI
+                resultOriginal.src = preview.src;
+                resultHeatmap.src = heatmapUrl;
+                
+                // Format score based on what the API spits back
+                if (typeof rawScore === 'number') {
+                    scoreValue.innerText = rawScore.toFixed(4);
+                    scoreValue.style.color = rawScore > 0.5 ? '#ff7b72' : '#3fb950'; // Red if high, green if low
+                } else {
+                    scoreValue.innerText = JSON.stringify(rawScore);
+                }
+                
+                resultsSection.style.display = "block";
+
+            } catch (error) {
+                console.error("API Error:", error);
+                alert("Backend Error: Could not reach the model. The Hugging Face space might be asleep.");
+            } finally {
+                // Reset UI
+                analyzeBtn.disabled = false;
+                loading.style.display = "none";
+            }
+        });
+    </script>
+</body>
+</html>
